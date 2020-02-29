@@ -36,9 +36,7 @@ export default class TranscriptView extends LitElement {
 
   @property({ type: Number }) private timeScrollTop = 0;
 
-  @property({ type: TranscriptEntryConfig }) private currentEntry:
-    | TranscriptEntryConfig
-    | undefined;
+  @property({ type: Array }) private currentEntries: TranscriptEntryConfig[] = [];
 
   private scrollTimerDelay = 15000;
 
@@ -92,8 +90,8 @@ export default class TranscriptView extends LitElement {
   }
 
   private transcriptEntryTemplate(entry: TranscriptEntryConfig): TemplateResult {
-    const currentEntryId = this.currentEntry ? this.currentEntry.id : -1;
-    const active = entry.id === currentEntryId;
+    const active = this.currentEntries.find((currentEntry) => currentEntry.id === entry.id)
+      !== undefined;
     const selected = entry.searchMatchIndex === this.selectedSearchResultIndex;
     const isSearchResult = entry.searchMatchIndex !== undefined;
     const isMusicEntry = entry.isMusic;
@@ -304,28 +302,66 @@ export default class TranscriptView extends LitElement {
 
   private handleCurrentTimeChange(): void {
     const entries = this.transcriptEntries;
+
     if (entries.length === 0) {
       return;
     }
 
-    const activeEntry = entries.find(
+    const activeEntries = entries.filter(
       // eslint-disable-next-line max-len
       (entry: TranscriptEntryConfig) => this.currentTime >= entry.start && this.currentTime <= entry.end,
     );
 
-    if (!activeEntry) {
-      this.currentEntry = undefined;
-      return;
-    }
-
     // this method gets called for every time update, which happens several times per second, but
-    // we only want to update the UI if the `currentEntry` has actually changed
+    // we only want to update the UI if the `currentEntries` have actually changed
     // (ie, their ids don't match)
-    if (this.currentEntry && this.currentEntry.id === activeEntry.id) {
+    const entriesMatch = this.entryArraysMatch(activeEntries, this.currentEntries);
+    if (entriesMatch) {
       return;
     }
 
-    this.currentEntry = activeEntry;
+    this.dispatchEvent(new Event('currentEntriesUpdated'));
+
+    this.currentEntries = activeEntries;
+  }
+
+  /**
+   * Compare two arrays of TranscriptEntryConfigs.
+   *
+   * This is useful for minimizing the amount of UI updates needed above in the
+   * `handleCurrentTimeChange` method above so it only updates when the entries
+   * have actually changed.
+   *
+   * @private
+   * @param {TranscriptEntryConfig[]} entryArrayA
+   * @param {TranscriptEntryConfig[]} entryArrayB
+   * @returns {boolean}
+   * @memberof TranscriptView
+   */
+  private entryArraysMatch(
+    entryArrayA: TranscriptEntryConfig[],
+    entryArrayB: TranscriptEntryConfig[]
+  ): boolean {
+
+    if (entryArrayA.length !== entryArrayB.length) {
+      return false;
+    }
+
+    const entryArrayAIds = entryArrayA.map(entry => entry.id).sort();
+    const entryArrayBIds = entryArrayB.map(entry => entry.id).sort();
+
+    let arraysMatch = true;
+    entryArrayAIds.forEach((value: number, index: number) => {
+      if (entryArrayBIds[index] !== value) {
+        arraysMatch = false;
+      }
+    });
+
+    if (arraysMatch) {
+      return true;
+    }
+
+    return false;
   }
 
   // This finds the transcript entry that is closest to a given time.
@@ -398,7 +434,7 @@ export default class TranscriptView extends LitElement {
     if (changedProperties.has('selectedSearchResultIndex')) {
       this.scrollToSelectedSearchResult();
     }
-    if (changedProperties.has('currentEntry')) {
+    if (changedProperties.has('currentEntries')) {
       this.scrollToClosestEntry();
       this.updateTimePosition();
     }
